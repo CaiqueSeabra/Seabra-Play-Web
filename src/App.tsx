@@ -1,11 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { GoogleGenAI } from '@google/genai';
-import { Camera, PlaySquare, Trash2, Download, Filter, Clock, SortAsc, Image as ImageIcon, Upload, Loader2, FolderPlus, Folder as FolderIcon, Edit2 } from 'lucide-react';
-
-// Initialize Gemini (Suporta tanto o preview local quanto o Render/Vite)
-// Atualização: Compressão de imagem ativada para evitar tela preta
-const apiKey = (import.meta as any).env?.VITE_GEMINI_API_KEY || (typeof process !== 'undefined' ? process.env.GEMINI_API_KEY : '');
-const ai = new GoogleGenAI({ apiKey: apiKey as string });
+import { PlaySquare, Trash2, Download, Filter, Clock, SortAsc, FolderPlus, Folder as FolderIcon, Edit2 } from 'lucide-react';
 
 // Types
 interface Video {
@@ -23,9 +17,6 @@ interface Folder {
 }
 
 export default function App() {
-  // Navigation
-  const [activeTab, setActiveTab] = useState<'playlist' | 'analyze'>('playlist');
-
   // Playlist State
   const [playlist, setPlaylist] = useState<Video[]>([]);
   const [folders, setFolders] = useState<Folder[]>([]);
@@ -45,13 +36,6 @@ export default function App() {
   const [isDeleteFolderConfirmOpen, setIsDeleteFolderConfirmOpen] = useState(false);
   const [deletingFolderId, setDeletingFolderId] = useState('');
 
-  // Gemini State
-  const [imageFile, setImageFile] = useState<File | null>(null);
-  const [imagePreview, setImagePreview] = useState<string | null>(null);
-  const [analysisPrompt, setAnalysisPrompt] = useState('Analise esta imagem em detalhes e descreva o que você vê.');
-  const [analysisResult, setAnalysisResult] = useState('');
-  const [isAnalyzing, setIsAnalyzing] = useState(false);
-  const fileInputRef = useRef<HTMLInputElement>(null);
   const importRef = useRef<HTMLInputElement>(null);
 
   // Load playlist and folders on mount
@@ -310,89 +294,6 @@ export default function App() {
     });
   };
 
-  // --- GEMINI FUNCTIONS ---
-  const handleImageUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
-
-    // Salva o arquivo original no estado para a interface saber que tem arquivo
-    setImageFile(file);
-    
-    const reader = new FileReader();
-    reader.onload = (event) => {
-      const img = new Image();
-      img.onload = () => {
-        // Criar um canvas para redimensionar a imagem e evitar travamento (Tela Preta) no celular
-        const canvas = document.createElement('canvas');
-        let width = img.width;
-        let height = img.height;
-        
-        const MAX_SIZE = 800; // Tamanho máximo seguro para celulares
-        if (width > height) {
-          if (width > MAX_SIZE) {
-            height = Math.round(height * MAX_SIZE / width);
-            width = MAX_SIZE;
-          }
-        } else {
-          if (height > MAX_SIZE) {
-            width = Math.round(width * MAX_SIZE / height);
-            height = MAX_SIZE;
-          }
-        }
-        
-        canvas.width = width;
-        canvas.height = height;
-        const ctx = canvas.getContext('2d');
-        ctx?.drawImage(img, 0, 0, width, height);
-        
-        // Comprimir para JPEG com 70% de qualidade
-        const compressedBase64 = canvas.toDataURL('image/jpeg', 0.7);
-        setImagePreview(compressedBase64);
-      };
-      img.src = event.target?.result as string;
-    };
-    reader.readAsDataURL(file);
-  };
-
-  const analyzeImage = async () => {
-    if (!imageFile || !imagePreview) {
-      showToast('⚠️ POR FAVOR, SELECIONE UMA IMAGEM', 'error');
-      return;
-    }
-    if (!analysisPrompt.trim()) {
-      showToast('⚠️ POR FAVOR, INSIRA UM PROMPT', 'error');
-      return;
-    }
-
-    setIsAnalyzing(true);
-    setAnalysisResult('');
-
-    try {
-      const base64Data = imagePreview.split(',')[1];
-      if (!base64Data) throw new Error("Falha ao processar imagem.");
-
-      const response = await ai.models.generateContent({
-        model: 'gemini-3.1-pro-preview',
-        contents: {
-          parts: [
-            // Como comprimimos no canvas, o formato agora é sempre image/jpeg
-            { inlineData: { data: base64Data, mimeType: 'image/jpeg' } },
-            { text: analysisPrompt }
-          ]
-        }
-      });
-
-      setAnalysisResult(response.text || 'Nenhum resultado retornado.');
-      showToast('✅ ANÁLISE CONCLUÍDA');
-    } catch (error) {
-      console.error(error);
-      showToast('❌ ERRO NA ANÁLISE', 'error');
-      setAnalysisResult('Ocorreu um erro ao analisar a imagem. Verifique o console para mais detalhes.');
-    } finally {
-      setIsAnalyzing(false);
-    }
-  };
-
   return (
     <div className="app-container">
       {/* Header Futurista */}
@@ -409,27 +310,14 @@ export default function App() {
         </div>
         
         <div className="flex gap-4">
-          <div 
-            className={`status-badge ${activeTab === 'playlist' ? 'active' : ''}`}
-            onClick={() => setActiveTab('playlist')}
-          >
+          <div className="status-badge active">
             <span className="status-dot"></span>
             PLAYLIST
-          </div>
-          <div 
-            className={`status-badge ${activeTab === 'analyze' ? 'active' : ''}`}
-            onClick={() => setActiveTab('analyze')}
-            style={{ borderColor: activeTab === 'analyze' ? '#0088ff' : '', color: activeTab === 'analyze' ? '#0088ff' : '' }}
-          >
-            <span className="status-dot blue"></span>
-            ANALISAR IMAGEM
           </div>
         </div>
       </header>
 
-      {activeTab === 'playlist' && (
-        <>
-          {/* Painel de Input */}
+      {/* Painel de Input */}
           <div className="input-panel">
             <div className="input-group" style={{ flexWrap: 'wrap' }}>
               <input 
@@ -608,97 +496,10 @@ export default function App() {
               </div>
             </main>
           </div>
-        </>
-      )}
-
-      {activeTab === 'analyze' && (
-        <div className="max-w-4xl mx-auto">
-          <div className="input-panel" style={{ borderColor: 'rgba(0, 136, 255, 0.2)' }}>
-            <h2 className="text-2xl font-bold mb-6" style={{ background: 'linear-gradient(135deg, #fff, #0088ff)', WebkitBackgroundClip: 'text', WebkitTextFillColor: 'transparent' }}>
-              🤖 ANÁLISE DE IMAGEM COM GEMINI
-            </h2>
-            
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
-              {/* Upload Section */}
-              <div className="flex flex-col gap-4">
-                <div 
-                  className="border-2 border-dashed rounded-xl p-8 flex flex-col items-center justify-center text-center cursor-pointer transition-all hover:bg-white/5"
-                  style={{ borderColor: imagePreview ? '#0088ff' : 'rgba(255,255,255,0.2)' }}
-                  onClick={() => fileInputRef.current?.click()}
-                >
-                  {imagePreview ? (
-                    <img src={imagePreview} alt="Preview" className="max-h-64 object-contain rounded-lg" />
-                  ) : (
-                    <>
-                      <Upload className="w-12 h-12 mb-4 opacity-50" />
-                      <p className="font-medium">Clique para fazer upload de uma imagem</p>
-                      <p className="text-sm opacity-50 mt-2">JPG, PNG, WEBP suportados</p>
-                    </>
-                  )}
-                  <input 
-                    type="file" 
-                    ref={fileInputRef} 
-                    onChange={handleImageUpload} 
-                    accept="image/*" 
-                    className="hidden" 
-                  />
-                </div>
-
-                <div className="flex flex-col gap-2">
-                  <label className="text-sm font-medium opacity-80">Prompt de Análise</label>
-                  <textarea 
-                    className="cyber-input blue min-h-[100px] resize-y"
-                    value={analysisPrompt}
-                    onChange={(e) => setAnalysisPrompt(e.target.value)}
-                    placeholder="O que você quer saber sobre esta imagem?"
-                  />
-                </div>
-
-                <button 
-                  className="cyber-btn blue flex items-center justify-center gap-2"
-                  onClick={analyzeImage}
-                  disabled={isAnalyzing || !imageFile}
-                  style={{ opacity: (!imageFile || isAnalyzing) ? 0.5 : 1 }}
-                >
-                  {isAnalyzing ? (
-                    <><Loader2 className="w-5 h-5 animate-spin" /> ANALISANDO...</>
-                  ) : (
-                    <><Camera className="w-5 h-5" /> ANALISAR IMAGEM</>
-                  )}
-                </button>
-              </div>
-
-              {/* Result Section */}
-              <div className="flex flex-col">
-                <div className="bg-black/40 border border-white/10 rounded-xl p-6 h-full min-h-[300px]">
-                  <h3 className="text-lg font-bold mb-4 flex items-center gap-2" style={{ color: '#0088ff' }}>
-                    <ImageIcon className="w-5 h-5" /> RESULTADO DA ANÁLISE
-                  </h3>
-                  
-                  {isAnalyzing ? (
-                    <div className="flex flex-col items-center justify-center h-full opacity-50 gap-4">
-                      <Loader2 className="w-8 h-8 animate-spin" style={{ color: '#0088ff' }} />
-                      <p>O Gemini está processando a imagem...</p>
-                    </div>
-                  ) : analysisResult ? (
-                    <div className="prose prose-invert max-w-none whitespace-pre-wrap text-sm leading-relaxed">
-                      {analysisResult}
-                    </div>
-                  ) : (
-                    <div className="flex flex-col items-center justify-center h-full opacity-30 text-center">
-                      <p>Faça o upload de uma imagem e clique em analisar para ver o resultado aqui.</p>
-                    </div>
-                  )}
-                </div>
-              </div>
-            </div>
-          </div>
-        </div>
-      )}
 
       {/* Toast Notification */}
       {toast && (
-        <div className="cyber-toast" style={{ borderColor: toast.type === 'error' ? '#ff4444' : (activeTab === 'analyze' ? '#0088ff' : '#ff0000') }}>
+        <div className="cyber-toast" style={{ borderColor: toast.type === 'error' ? '#ff4444' : '#ff0000' }}>
           {toast.message}
         </div>
       )}
