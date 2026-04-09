@@ -3,6 +3,7 @@ import { GoogleGenAI } from '@google/genai';
 import { Camera, PlaySquare, Trash2, Download, Filter, Clock, SortAsc, Image as ImageIcon, Upload, Loader2, FolderPlus, Folder as FolderIcon, Edit2 } from 'lucide-react';
 
 // Initialize Gemini (Suporta tanto o preview local quanto o Render/Vite)
+// Atualização: Compressão de imagem ativada para evitar tela preta
 const apiKey = (import.meta as any).env?.VITE_GEMINI_API_KEY || (typeof process !== 'undefined' ? process.env.GEMINI_API_KEY : '');
 const ai = new GoogleGenAI({ apiKey: apiKey as string });
 
@@ -312,18 +313,49 @@ export default function App() {
   // --- GEMINI FUNCTIONS ---
   const handleImageUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
-    if (file) {
-      setImageFile(file);
-      const reader = new FileReader();
-      reader.onloadend = () => {
-        setImagePreview(reader.result as string);
+    if (!file) return;
+
+    // Salva o arquivo original no estado para a interface saber que tem arquivo
+    setImageFile(file);
+    
+    const reader = new FileReader();
+    reader.onload = (event) => {
+      const img = new Image();
+      img.onload = () => {
+        // Criar um canvas para redimensionar a imagem e evitar travamento (Tela Preta) no celular
+        const canvas = document.createElement('canvas');
+        let width = img.width;
+        let height = img.height;
+        
+        const MAX_SIZE = 800; // Tamanho máximo seguro para celulares
+        if (width > height) {
+          if (width > MAX_SIZE) {
+            height = Math.round(height * MAX_SIZE / width);
+            width = MAX_SIZE;
+          }
+        } else {
+          if (height > MAX_SIZE) {
+            width = Math.round(width * MAX_SIZE / height);
+            height = MAX_SIZE;
+          }
+        }
+        
+        canvas.width = width;
+        canvas.height = height;
+        const ctx = canvas.getContext('2d');
+        ctx?.drawImage(img, 0, 0, width, height);
+        
+        // Comprimir para JPEG com 70% de qualidade
+        const compressedBase64 = canvas.toDataURL('image/jpeg', 0.7);
+        setImagePreview(compressedBase64);
       };
-      reader.readAsDataURL(file);
-    }
+      img.src = event.target?.result as string;
+    };
+    reader.readAsDataURL(file);
   };
 
   const analyzeImage = async () => {
-    if (!imageFile) {
+    if (!imageFile || !imagePreview) {
       showToast('⚠️ POR FAVOR, SELECIONE UMA IMAGEM', 'error');
       return;
     }
@@ -336,14 +368,15 @@ export default function App() {
     setAnalysisResult('');
 
     try {
-      const base64Data = imagePreview?.split(',')[1];
+      const base64Data = imagePreview.split(',')[1];
       if (!base64Data) throw new Error("Falha ao processar imagem.");
 
       const response = await ai.models.generateContent({
         model: 'gemini-3.1-pro-preview',
         contents: {
           parts: [
-            { inlineData: { data: base64Data, mimeType: imageFile.type } },
+            // Como comprimimos no canvas, o formato agora é sempre image/jpeg
+            { inlineData: { data: base64Data, mimeType: 'image/jpeg' } },
             { text: analysisPrompt }
           ]
         }
